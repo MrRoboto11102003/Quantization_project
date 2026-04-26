@@ -22,17 +22,26 @@ class DynamicQuantConv2d(nn.Module):
         self.conv = nn.Conv2d(*args, **kwargs)
 
     def forward(self, x, bits):
-        w_q = STEQuantize.apply(self.conv.weight, bits)
-        x_q = STEQuantize.apply(x, bits)
-        return F.conv2d(x_q, w_q, self.conv.bias, self.conv.stride, self.conv.padding)
+        unique_bits = torch.unique(bits)
+        chunks, chunk_idx = [], []
+        for b in unique_bits:
+            mask = (bits == b)
+            idx = mask.nonzero(as_tuple=True)[0]
+            w_q = STEQuantize.apply(self.conv.weight, b)
+            x_q = STEQuantize.apply(x[idx], b)
+            chunks.append(F.conv2d(x_q, w_q, self.conv.bias, self.conv.stride, self.conv.padding))
+            chunk_idx.append(idx)
+        all_idx = torch.cat(chunk_idx)
+        all_out = torch.cat(chunks)
+        _, sort_idx = all_idx.sort()
+        return all_out[sort_idx]
 
 def select_bits(logits, bit_options, temperature=1.0, training=True):
     bit_tensor = torch.tensor(bit_options, dtype=torch.float, device=logits.device)
-    logits_mean = logits.mean(dim=0)
     if training:
-        soft = F.gumbel_softmax(logits_mean.unsqueeze(0), tau=temperature, hard=True).squeeze(0)
-        return (soft * bit_tensor).sum()
-    return bit_tensor[torch.argmax(logits_mean)]
+        soft = F.gumbel_softmax(logits, tau=temperature, hard=True)
+        return (soft * bit_tensor).sum(dim=-1)
+    return bit_tensor[torch.argmax(logits, dim=-1)]
 
 class BitController(nn.Module):
     def __init__(self, num_layers, num_bits_options=3):
@@ -89,7 +98,6 @@ class DQResNet(nn.Module):
 
         num_controlled = 1 + sum(num_blocks)
         self.controller = BitController(num_controlled, len(bit_options))
-
         self.layer_flops = self._compute_layer_flops(num_blocks)
 
     def _make_layer(self, block, planes, num_blocks, stride):
@@ -134,8 +142,10 @@ class DQResNet(nn.Module):
         return out, bits_list
 
 def compute_bitops(bits_list, layer_flops):
-    total = sum(b * b * f for b, f in zip(bits_list, layer_flops))
-    return total
+    total = torch.zeros_like(bits_list[0])
+    for bits, flops in zip(bits_list, layer_flops):
+        total = total + bits * bits * flops
+    return total.mean()
 
 def max_bitops(layer_flops):
     return sum(32.0 * 32.0 * f for f in layer_flops)
