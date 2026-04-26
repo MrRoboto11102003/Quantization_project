@@ -28,10 +28,11 @@ class DynamicQuantConv2d(nn.Module):
 
 def select_bits(logits, bit_options, temperature=1.0, training=True):
     bit_tensor = torch.tensor(bit_options, dtype=torch.float, device=logits.device)
+    logits_mean = logits.mean(dim=0)
     if training:
-        soft = F.gumbel_softmax(logits, tau=temperature, hard=True)
+        soft = F.gumbel_softmax(logits_mean.unsqueeze(0), tau=temperature, hard=True).squeeze(0)
         return (soft * bit_tensor).sum()
-    return bit_tensor[torch.argmax(logits)]
+    return bit_tensor[torch.argmax(logits_mean)]
 
 class BitController(nn.Module):
     def __init__(self, num_layers, num_bits_options=3):
