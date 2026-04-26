@@ -41,19 +41,14 @@ class BitController(nn.Module):
     def __init__(self, num_layers, num_bits_options=3):
         super().__init__()
         self.shared = nn.Sequential(
-            nn.Conv2d(3, 16, 3, stride=2, padding=1, bias=False),
-            nn.BatchNorm2d(16),
+            nn.Conv2d(3, 16, 3, stride=2, padding=1, bias=True),
             nn.ReLU(),
-            nn.Conv2d(16, 32, 3, stride=2, padding=1, bias=False),
-            nn.BatchNorm2d(32),
-            nn.ReLU(),
-            nn.Conv2d(32, 64, 3, stride=2, padding=1, bias=False),
-            nn.BatchNorm2d(64),
+            nn.Conv2d(16, 32, 3, stride=2, padding=1, bias=True),
             nn.ReLU(),
             nn.AdaptiveAvgPool2d(1),
             nn.Flatten()
         )
-        self.heads = nn.ModuleList([nn.Linear(64, num_bits_options) for _ in range(num_layers)])
+        self.heads = nn.ModuleList([nn.Linear(32, num_bits_options) for _ in range(num_layers)])
 
     def forward(self, x):
         feat = self.shared(x)
