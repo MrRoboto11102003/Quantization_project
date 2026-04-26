@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-BIT_OPTIONS = [2, 4, 8]
+BIT_OPTIONS = [3, 4, 5, 6, 7]
 
 class STEQuantize(torch.autograd.Function):
     @staticmethod
@@ -34,7 +34,7 @@ class DynamicQuantConv2d(nn.Module):
 
 def select_bits(logits, temperature=1.0, training=True):
     if training:
-        return F.gumbel_softmax(logits, tau=temperature, hard=True)
+        return F.gumbel_softmax(logits, tau=temperature, hard=False)
     return F.one_hot(torch.argmax(logits, dim=-1), logits.size(-1)).float()
 
 class BitController(nn.Module):
