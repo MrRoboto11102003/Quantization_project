@@ -22,10 +22,11 @@ class DynamicQuantConv2d(nn.Module):
         self.conv = nn.Conv2d(*args, **kwargs)
 
     def forward(self, x, bits):
-        unique_bits = torch.unique(bits)
+        bits_d = bits.detach()
+        unique_bits = torch.unique(bits_d)
         chunks, chunk_idx = [], []
         for b in unique_bits:
-            mask = (bits == b)
+            mask = (bits_d == b)
             idx = mask.nonzero(as_tuple=True)[0]
             w_q = STEQuantize.apply(self.conv.weight, b)
             x_q = STEQuantize.apply(x[idx], b)
