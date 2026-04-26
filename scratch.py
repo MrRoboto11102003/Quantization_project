@@ -1,9 +1,14 @@
-import numpy as np
+import torch
+import torch.nn as nn
+from resnet import resnet20
+import torch.ao.quantization.quantize_fx as quantize_fx
 
-layer_names = ['conv1'] + [f'L{g+1}.B{b}' for g, n in enumerate([3,3,3]) for b in range(n)]
-print(layer_names)
-print(len(layer_names))
+model = resnet20()
+model.eval()
 
-mean_bits = np.random.rand(10)
-for name, mb in zip(layer_names, mean_bits):
-    print(f'  {name}: {mb:.2f}')
+qconfig_dict = {"": torch.ao.quantization.get_default_qconfig("fbgemm")}
+prepared_model = quantize_fx.prepare_fx(model, qconfig_dict, example_inputs=torch.randn(1, 3, 32, 32))
+quantized_model = quantize_fx.convert_fx(prepared_model)
+
+out = quantized_model(torch.randn(1, 3, 32, 32))
+print("FX Quantization successful, output shape:", out.shape)
