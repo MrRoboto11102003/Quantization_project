@@ -1,0 +1,4 @@
+1. Resnet 20 base
+2. resnet 20 static quantization
+3. Resnet 20 dynamic quantization
+
