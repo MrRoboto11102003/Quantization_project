@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-BIT_OPTIONS = [4, 8]
+BIT_OPTIONS = [5, 7]
 
 class STEQuantize(torch.autograd.Function):
     @staticmethod
@@ -32,17 +32,17 @@ class GlobalDynamicQuantConv2d(nn.Module):
             x_q = STEQuantize.apply(x, routing_info)
             return F.conv2d(x_q, w_q, self.conv.bias, self.conv.stride, self.conv.padding)
         else:
-            w4 = STEQuantize.apply(self.conv.weight, 4)
-            x4 = STEQuantize.apply(x, 4)
-            out4 = F.conv2d(x4, w4, self.conv.bias, self.conv.stride, self.conv.padding)
+            w0 = STEQuantize.apply(self.conv.weight, BIT_OPTIONS[0])
+            x0 = STEQuantize.apply(x, BIT_OPTIONS[0])
+            out0 = F.conv2d(x0, w0, self.conv.bias, self.conv.stride, self.conv.padding)
             
-            w8 = STEQuantize.apply(self.conv.weight, 8)
-            x8 = STEQuantize.apply(x, 8)
-            out8 = F.conv2d(x8, w8, self.conv.bias, self.conv.stride, self.conv.padding)
+            w1 = STEQuantize.apply(self.conv.weight, BIT_OPTIONS[1])
+            x1 = STEQuantize.apply(x, BIT_OPTIONS[1])
+            out1 = F.conv2d(x1, w1, self.conv.bias, self.conv.stride, self.conv.padding)
             
             # routing_info is [batch_size, 2]
             w = routing_info.view(-1, 2, 1, 1, 1)
-            stacked = torch.stack([out4, out8], dim=1)
+            stacked = torch.stack([out0, out1], dim=1)
             return (w * stacked).sum(dim=1)
 
 class GlobalRouter(nn.Module):
@@ -142,20 +142,20 @@ class GlobalDQResNet(nn.Module):
             # Hard inference: split the batch for maximum latency efficiency
             hard_idx = torch.argmax(logits, dim=1)
             
-            mask4 = (hard_idx == 0)
-            mask8 = (hard_idx == 1)
+            mask0 = (hard_idx == 0)
+            mask1 = (hard_idx == 1)
             
-            x4 = x[mask4]
-            x8 = x[mask8]
+            x0 = x[mask0]
+            x1 = x[mask1]
             
             out = torch.empty((x.size(0), self.linear.out_features), device=x.device)
             
-            if x4.size(0) > 0:
-                out4 = self._forward_network(x4, routing_info=4)
-                out[mask4] = out4
-            if x8.size(0) > 0:
-                out8 = self._forward_network(x8, routing_info=8)
-                out[mask8] = out8
+            if x0.size(0) > 0:
+                out0 = self._forward_network(x0, routing_info=BIT_OPTIONS[0])
+                out[mask0] = out0
+            if x1.size(0) > 0:
+                out1 = self._forward_network(x1, routing_info=BIT_OPTIONS[1])
+                out[mask1] = out1
                 
             # For inference, we return the output and the hard selections (0 for INT4, 1 for INT8)
             return out, hard_idx
@@ -166,15 +166,16 @@ def compute_global_bitops(soft_bits, layer_flops):
     total_flops = sum(layer_flops)
     
     # Cost per bit option
-    cost_4 = 4 * 4 * total_flops
-    cost_8 = 8 * 8 * total_flops
+    cost_0 = BIT_OPTIONS[0] * BIT_OPTIONS[0] * total_flops
+    cost_1 = BIT_OPTIONS[1] * BIT_OPTIONS[1] * total_flops
     
     # Expected cost
-    expected_cost = soft_bits[:, 0] * cost_4 + soft_bits[:, 1] * cost_8
+    expected_cost = soft_bits[:, 0] * cost_0 + soft_bits[:, 1] * cost_1
     return expected_cost.mean()
 
 def max_global_bitops(layer_flops):
-    return 8 * 8 * sum(layer_flops)
+    max_b = max(BIT_OPTIONS)
+    return max_b * max_b * sum(layer_flops)
 
 def global_dq_resnet20():
     return GlobalDQResNet(GlobalDQBasicBlock, [3, 3, 3])
